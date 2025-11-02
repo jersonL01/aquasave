@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default function PerfilPage() {
   return (
     <main className="min-h-[calc(100vh-3.5rem)] bg-gradient-to-b from-sky-900/30 to-sky-900/10 pt-6 pb-12">
-      <TopNavApp /> 
+      <TopNavApp />
       <div className="mx-auto max-w-5xl px-4 mt-5">
         <Perfil />
       </div>
