@@ -10,7 +10,6 @@ export const dynamic = "force-dynamic";
 
 const norm = (r: any) => (Array.isArray(r) ? r : r?.rows ?? []);
 
-/* --------- Auth helper (idéntico al de la lista) --------- */
 async function getAuthUser() {
   const jar: any = await (cookies() as any);
   const jwtSecret = process.env.JWT_SECRET;
@@ -46,12 +45,14 @@ async function getAuthUser() {
 }
 
 /* ----------------------------- GET /:id ----------------------------- */
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const auth = await getAuthUser();
     if (!auth?.id) return NextResponse.json({ ok: false, error: "Sin sesión" }, { status: 401 });
 
-    const rid = decodeURIComponent(params.id);
+    const { id } = await ctx.params;              // 👈 await params
+    const rid = decodeURIComponent(id);
+
     const r = await sql/*sql*/`
       SELECT id, nombre, tipo, marca, cantidad, descripcion,
              creado_en, actualizado_en,
@@ -71,12 +72,13 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 }
 
 /* ---------------------------- PATCH /:id ---------------------------- */
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const auth = await getAuthUser();
     if (!auth?.id) return NextResponse.json({ ok: false, error: "Sin sesión" }, { status: 401 });
 
-    const rid = decodeURIComponent(params.id);
+    const { id } = await ctx.params;              // 👈 await params
+    const rid = decodeURIComponent(id);
     const body = await req.json().catch(() => ({}));
 
     const pEncendido = Object.prototype.hasOwnProperty.call(body, "encendido");
@@ -160,12 +162,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 }
 
 /* --------------------------- DELETE /:id --------------------------- */
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const auth = await getAuthUser();
     if (!auth?.id) return NextResponse.json({ ok: false, error: "Sin sesión" }, { status: 401 });
 
-    const rid = decodeURIComponent(params.id);
+    const { id } = await ctx.params;              // 👈 await params
+    const rid = decodeURIComponent(id);
+
     const r = await sql/*sql*/`
       DELETE FROM public.dispositivos
       WHERE id = ${rid} AND usuario_id = ${auth.id}

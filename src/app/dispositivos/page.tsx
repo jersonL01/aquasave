@@ -1,4 +1,3 @@
-// src/app/dispositivos/page.tsx
 'use client';
 
 import TopNavApp from '@/components/TopNavApp';
@@ -7,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { Pencil, Plus } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import ConfirmDeleteButton from '@/components/ConfirmDeleteButton';
+import BtnEncendido from '@/components/BtnEncendido';
 
 type Dispositivo = {
   id: string;
@@ -16,7 +16,7 @@ type Dispositivo = {
   cantidad: number;
   descripcion: string | null;
   creado_en?: string;
-  encendido?: boolean; // estado real desde API
+  encendido?: boolean; // <- viene de la API
 };
 
 function sortDispositivos(list: Dispositivo[]) {
@@ -50,7 +50,7 @@ export default function DispositivosVinculadosPage() {
       setItems(sortDispositivos(arr));
       setStatusById(() => {
         const m: Record<string, boolean> = {};
-        for (const d of arr) m[d.id] = !!d.encendido; // usar estado real
+        for (const d of arr) m[d.id] = !!d.encendido;
         return m;
       });
     } catch (e: any) {
@@ -66,50 +66,6 @@ export default function DispositivosVinculadosPage() {
 
   function handleEdit(id: string) {
     router.push(`/crud/${encodeURIComponent(id)}/editar`);
-  }
-
-  async function toggleEstado(d: Dispositivo) {
-    const current = !!statusById[d.id];
-    const next = !current;
-
-    // Confirmación sólo al encender
-    if (next) {
-      const ok = window.confirm(
-        `¿Quieres encender el dispositivo "${d.nombre}"?\n\nSe empezará a registrar consumo y se simularán las últimas 24 horas.`
-      );
-      if (!ok) return;
-    }
-
-    // Optimista + bloquear botón
-    setStatusById(m => ({ ...m, [d.id]: next }));
-    setBusyById(m => ({ ...m, [d.id]: true }));
-
-    try {
-      // 1) Persistir encendido/apagado
-      const r1 = await fetch(`/api/dispositivos/${encodeURIComponent(d.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ encendido: next }),
-        credentials: 'include',
-      });
-      const j1 = await r1.json().catch(() => ({}));
-      if (!r1.ok || j1?.ok === false) throw new Error(j1?.error || 'No se pudo cambiar el estado');
-
-      // 2) Si quedó encendido, dispara simulación 24h (endpoint correcto /api/24h)
-      if (next) {
-        fetch('/api/24h', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ deviceId: d.id }), // defaults: 24h, step 60s
-        }).catch(console.error);
-      }
-    } catch (e: any) {
-      // rollback
-      setStatusById(m => ({ ...m, [d.id]: current }));
-      alert(e?.message ?? 'No se pudo cambiar el estado');
-    } finally {
-      setBusyById(m => ({ ...m, [d.id]: false }));
-    }
   }
 
   return (
@@ -158,6 +114,7 @@ export default function DispositivosVinculadosPage() {
                 {items.map(d => {
                   const on = !!statusById[d.id];
                   const busy = !!busyById[d.id];
+
                   return (
                     <li key={d.id} className="px-5 py-4">
                       {/* Desktop */}
@@ -188,21 +145,21 @@ export default function DispositivosVinculadosPage() {
                         <div className="text-slate-700">{fmtDate(d.creado_en)}</div>
 
                         <div className="flex justify-center gap-2">
-                          <button
-                            onClick={() => toggleEstado(d)}
+                          <BtnEncendido
+                            deviceId={d.id}
+                            deviceName={d.nombre}
+                            on={on}
                             disabled={busy}
-                            className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ${
-                              on
-                                ? 'text-emerald-700 hover:bg-emerald-50 border-emerald-300'
-                                : 'text-slate-700 hover:bg-slate-100'
-                            } ${busy ? 'opacity-60 cursor-not-allowed' : ''}`}
-                            title={on ? 'Apagar' : 'Encender'}
-                          >
-                            {busy ? 'Procesando…' : on ? 'Apagar' : 'Encender'}
-                          </button>
+                            onChanged={(nextOn) => {
+                              setStatusById(m => ({ ...m, [d.id]: nextOn }));
+                              setBusyById(m => ({ ...m, [d.id]: false }));
+                            }}
+                            simulateOnEnable={true}
+                            simulateEndpoint="/api/simular/24h"
+                          />
 
                           <button
-                            onClick={() => handleEdit(d.id)}
+                            onClick={() => router.push(`/crud/${encodeURIComponent(d.id)}/editar`)}
                             className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                             title="Editar"
                           >
@@ -211,19 +168,24 @@ export default function DispositivosVinculadosPage() {
 
                           <ConfirmDeleteButton
                             onConfirm={async () => {
-                              const res = await fetch(`/api/dispositivos/${encodeURIComponent(d.id)}`, {
-                                method: 'DELETE',
-                                credentials: 'include',
-                              });
-                              const j = await res.json().catch(() => ({}));
-                              if (!res.ok || j?.ok === false) {
-                                throw new Error(j?.error || 'No se pudo eliminar');
+                              setBusyById(m => ({ ...m, [d.id]: true }));
+                              try {
+                                const res = await fetch(`/api/dispositivos/${encodeURIComponent(d.id)}`, {
+                                  method: 'DELETE',
+                                  credentials: 'include',
+                                });
+                                const j = await res.json().catch(() => ({}));
+                                if (!res.ok || j?.ok === false) {
+                                  throw new Error(j?.error || 'No se pudo eliminar');
+                                }
+                                setItems(prev => prev.filter(x => x.id !== d.id));
+                                setStatusById(m => {
+                                  const { [d.id]: _omit, ...rest } = m;
+                                  return rest;
+                                });
+                              } finally {
+                                setBusyById(m => ({ ...m, [d.id]: false }));
                               }
-                              setItems(prev => prev.filter(x => x.id !== d.id));
-                              setStatusById(m => {
-                                const { [d.id]: _omit, ...rest } = m;
-                                return rest;
-                              });
                             }}
                           >
                             Eliminar
@@ -273,21 +235,27 @@ export default function DispositivosVinculadosPage() {
                           </span>
 
                           <div className="flex gap-2">
-                            <button
-                              onClick={() => toggleEstado(d)}
-                              disabled={busy}
-                              className={`rounded-md border px-3 py-1.5 text-xs font-semibold text-slate-700 ${
-                                busy ? 'opacity-60 cursor-not-allowed' : ''
-                              }`}
-                            >
-                              {busy ? 'Procesando…' : statusById[d.id] ? 'Apagar' : 'Encender'}
-                            </button>
+                            <BtnEncendido
+                              deviceId={d.id}
+                              deviceName={d.nombre}
+                              on={!!statusById[d.id]}
+                              disabled={!!busyById[d.id]}
+                              onChanged={(nextOn) => {
+                                setStatusById(m => ({ ...m, [d.id]: nextOn }));
+                                setBusyById(m => ({ ...m, [d.id]: false }));
+                              }}
+                              simulateOnEnable={true}
+                              simulateEndpoint="/api/simular/24h"
+                              className="rounded-md border px-3 py-1.5 text-xs font-semibold text-slate-700"
+                            />
+
                             <button
                               onClick={() => handleEdit(d.id)}
                               className="rounded-md border px-3 py-1.5 text-xs font-semibold text-slate-700"
                             >
                               Editar
                             </button>
+
                             <ConfirmDeleteButton
                               onConfirm={async () => {
                                 const res = await fetch(`/api/dispositivos/${encodeURIComponent(d.id)}`, {

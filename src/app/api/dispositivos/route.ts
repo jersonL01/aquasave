@@ -38,7 +38,6 @@ async function getAuthUser() {
   const session = await getServerSession(authOptions);
   const email = session?.user?.email ?? null;
   if (email) {
-    // buscamos id por email
     const r = await sql/*sql*/`
       SELECT id FROM public.usuarios WHERE lower(email) = lower(${email}) LIMIT 1
     `;
@@ -58,8 +57,17 @@ export async function GET() {
     }
 
     const r = await sql/*sql*/`
-      SELECT id, nombre, tipo, marca, cantidad, descripcion, creado_en, actualizado_en
-      FROM dispositivos
+      SELECT
+        id,
+        nombre,
+        tipo,
+        marca,
+        cantidad,
+        descripcion,
+        creado_en,
+        actualizado_en,
+        encendido           -- 👈 IMPORTANTE
+      FROM public.dispositivos
       WHERE usuario_id = ${auth.id}
       ORDER BY creado_en DESC
       LIMIT 200
@@ -94,15 +102,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Faltan campos obligatorios o cantidad inválida" }, { status: 400 });
     }
 
-    const exists = await sql/*sql*/`SELECT 1 FROM dispositivos WHERE id = ${id} LIMIT 1`;
+    const exists = await sql/*sql*/`SELECT 1 FROM public.dispositivos WHERE id = ${id} LIMIT 1`;
     if (norm(exists).length) {
       return NextResponse.json({ ok: false, error: `El dispositivo ${id} ya existe` }, { status: 409 });
     }
 
     const r = await sql/*sql*/`
-      INSERT INTO dispositivos (id, nombre, tipo, marca, cantidad, descripcion, usuario_id)
+      INSERT INTO public.dispositivos (id, nombre, tipo, marca, cantidad, descripcion, usuario_id)
       VALUES (${id}, ${nombre}, ${tipo}, ${marca}, ${cantidad}, ${descripcion || null}, ${auth.id})
-      RETURNING id, nombre, tipo, marca, cantidad, descripcion, creado_en
+      RETURNING id, nombre, tipo, marca, cantidad, descripcion, creado_en, encendido
     `;
     const [item] = norm(r);
     return NextResponse.json({ ok: true, item }, { status: 201 });
