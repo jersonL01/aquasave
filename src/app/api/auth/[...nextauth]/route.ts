@@ -1,49 +1,88 @@
 // src/app/api/auth/[...nextauth]/route.ts
 import NextAuth, { type NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
+import CredentialsProvider from "next-auth/providers/credentials";
 import { neon } from "@neondatabase/serverless";
+import bcrypt from "bcryptjs";
 
 export const runtime = "nodejs";
 
-const sql = neon(process.env.DATABASE_URL!); // con ?sslmode=require
+const sql = neon(process.env.DATABASE_URL!);
 
 export const authOptions: NextAuthOptions = {
   providers: [
+    // 🔵 Google
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     }),
+
+    // 🟣 Credenciales propias (correo + pass de tu tabla usuarios)
+    CredentialsProvider({
+      name: "Credentials",
+      credentials: {
+        email: { label: "Email", type: "text" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
+
+        // buscamos el usuario por email
+        const rows = await sql/*sql*/`
+          SELECT id, email, pass, nombre, tipo
+          FROM public.usuarios
+          WHERE email = ${credentials.email}
+          LIMIT 1
+        `;
+        const user = Array.isArray(rows) ? rows[0] : (rows as any)[0];
+        if (!user) return null;
+
+        // la columna se llama pass en tu tabla
+        const hash = user.pass as string;
+        const ok = await bcrypt.compare(credentials.password, hash);
+        if (!ok) return null;
+
+        return {
+          id: String(user.id),
+          email: user.email,
+          name: user.nombre,
+          tipo: user.tipo ?? "usuario",
+        };
+      },
+    }),
   ],
 
-  // Mapea la página de login a tu /login (evita /auth/* antiguas)
   pages: {
-    signIn: "/login",
+    signIn: "/login", // tu página de login
   },
 
   session: { strategy: "jwt" },
 
   callbacks: {
+    // cuando entra por Google, lo upserteamos en tu tabla
     async signIn({ user, account }) {
-      if (account?.provider !== "google") return true;
-      const providerId = (account as any)?.providerAccountId ?? null;
-      try {
-        await sql/*sql*/`
-          INSERT INTO public.usuarios (nombre, email, telefono, pass, tipo, provider, provider_id)
-          VALUES (${user.name ?? ""}, ${user.email}, NULL, DEFAULT,
-                  COALESCE((SELECT tipo FROM public.usuarios WHERE email=${user.email}), 'usuario'),
-                  'google', ${providerId})
-          ON CONFLICT (email) DO UPDATE
-            SET nombre      = EXCLUDED.nombre,
-                provider    = 'google',
-                provider_id = COALESCE(public.usuarios.provider_id, EXCLUDED.provider_id)
-        `;
-        return true;
-      } catch (e) {
-        console.error("Upsert user failed:", e);
-        return "/login?error=Configuration";
+      if (account?.provider === "google") {
+        const providerId = (account as any)?.providerAccountId ?? null;
+        try {
+          await sql/*sql*/`
+            INSERT INTO public.usuarios (nombre, email, telefono, pass, tipo, provider, provider_id)
+            VALUES (${user.name ?? ""}, ${user.email}, NULL, DEFAULT,
+                    COALESCE((SELECT tipo FROM public.usuarios WHERE email=${user.email}), 'usuario'),
+                    'google', ${providerId})
+            ON CONFLICT (email) DO UPDATE
+              SET nombre      = EXCLUDED.nombre,
+                  provider    = 'google',
+                  provider_id = COALESCE(public.usuarios.provider_id, EXCLUDED.provider_id)
+          `;
+        } catch (e) {
+          console.error("Upsert user failed:", e);
+          // igual dejamos entrar
+        }
       }
+      return true;
     },
 
+    // meter id y tipo al token
     async jwt({ token }) {
       if (token?.email) {
         try {
@@ -53,29 +92,26 @@ export const authOptions: NextAuthOptions = {
             WHERE email = ${token.email}
             LIMIT 1
           `;
-          const u = rows[0] as any;
+          const u = Array.isArray(rows) ? rows[0] : (rows as any)[0];
           if (u) {
             (token as any).userId = u.id;
             (token as any).tipo = u.tipo ?? "usuario";
             token.name = u.nombre ?? token.name;
-          } else {
-            (token as any).tipo = (token as any).tipo ?? "usuario";
           }
         } catch (e) {
           console.error("read user failed:", e);
-          (token as any).tipo = (token as any).tipo ?? "usuario";
         }
       }
       return token;
     },
 
+    // lo mismo pero para la sesión del cliente
     async session({ session, token }) {
       (session.user as any).id = (token as any).userId;
       (session.user as any).tipo = (token as any).tipo ?? "usuario";
       return session;
     },
 
-    // 🔒 FIX: fuerzo el post-login SIEMPRE a /principal, sin importar lo que venga en cookies antiguas
     async redirect({ baseUrl }) {
       return `${baseUrl}/principal`;
     },

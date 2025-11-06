@@ -6,29 +6,25 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { alertError, alertSuccess } from "@/lib/alerts";
-import { setUser } from "@/lib/user";
 import { Mail, Lock } from "lucide-react";
+import { signIn } from "next-auth/react";
 import ButtonGoogle from "./ButtonGoogle";
 
 const schema = z.object({
   email: z.string().email("Correo inválido"),
   password: z.string().min(8, "Mínimo 8 caracteres"),
-  remember: z.boolean().optional(),
 });
 type FormData = z.infer<typeof schema>;
 
 type Props = {
-  afterLoginHref?: string;      // default: /principal
-  meEndpoint?: string;          // default: /api/me
-  allowedRoles?: string[];      // <-- NUEVO (default ["usuario"])
+  afterLoginHref?: string;
+  allowedRoles?: string[]; // por si más adelante quieres filtrar
   className?: string;
 };
 
 export default function FormLogin({
   afterLoginHref = "/principal",
-  meEndpoint = "/api/me",
-  allowedRoles = ["usuario"],   // <-- por defecto solo 'usuario'
+  allowedRoles = ["usuario", "administrador"],
   className = "",
 }: Props) {
   const router = useRouter();
@@ -40,57 +36,30 @@ export default function FormLogin({
     setError,
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { remember: false },
   });
 
   const base =
     "w-full h-12 pl-12 pr-3 rounded-lg bg-white/30 text-white placeholder-white/75 border border-white/35 focus:outline-none focus:ring-2 focus:ring-white/70";
 
-  const onSubmit = async (payload: FormData) => {
-    try {
-      // 1) Login (server setea cookie)
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: payload.email, password: payload.password }),
-      });
-      const data: any = await res.json().catch(() => ({}));
-      if (!res.ok || data?.ok === false) {
-        throw new Error(data?.error || data?.msg || "Error al iniciar sesión");
-      }
+  const onSubmit = async (values: FormData) => {
+    // login via next-auth credentials
+    const res = await signIn("credentials", {
+      redirect: false,
+      email: values.email,
+      password: values.password,
+    });
 
-      // 2) Perfil con cookie
-      const meRes = await fetch(meEndpoint, { credentials: "include", cache: "no-store" });
-      const me: any = await meRes.json().catch(() => ({}));
-      if (!meRes.ok || me?.ok === false || !me?.user) {
-        throw new Error("No se pudo leer el perfil de usuario");
-      }
-
-      // Guarda user mínimo (si tu app lo usa)
-      setUser({
-        email: me.user.email,
-        nombre: me.user.nombre,
-        apellido: me.user.apellido,
-      });
-
-      // ---- Validación de rol permitido ----
-      const tipo = String(
-        me?.user?.tipo ?? me?.tipo ?? me?.user?.rol ?? me?.rol ?? ""
-      ).toLowerCase();
-
-      const okRole = allowedRoles.map(r => r.toLowerCase()).includes(tipo);
-      if (!okRole) {
-        throw new Error("No tienes permisos para acceder");
-      }
-      // -------------------------------------
-
-      alertSuccess("Bienvenido", `${me.user?.nombre ?? ""} ${me.user?.apellido ?? ""}`.trim());
-      router.push(afterLoginHref);
-    } catch (e: any) {
-      const msg = e?.message || "Credenciales inválidas";
-      alertError("Inicio fallido", msg);
-      setError("root", { message: msg });
+    if (res?.error) {
+      setError("root", { message: res.error });
+      return;
     }
+
+    // opcional: puedes pedir /api/me si quieres comprobar rol:
+    // const meRes = await fetch("/api/me", { cache: "no-store" });
+    // const me = await meRes.json().catch(() => ({}));
+    // ...
+
+    router.push(afterLoginHref);
   };
 
   return (
@@ -120,18 +89,6 @@ export default function FormLogin({
         </p>
       )}
 
-      {/* Acciones */}
-      <div className="flex items-center justify-between text-sm text-white/90">
-        <label className="flex items-center gap-2">
-          <input type="checkbox" className="accent-white/90" {...register("remember")} />
-          Recordarme
-        </label>
-        <Link href="/auth/password" className="underline hover:text-blue-200">
-          Recuperar Contraseña
-        </Link>
-      </div>
-
-      {/* Botón principal */}
       <button
         type="submit"
         disabled={isSubmitting}
@@ -140,8 +97,10 @@ export default function FormLogin({
       >
         {isSubmitting ? "Ingresando…" : "Iniciar Sesión"}
       </button>
+
+      {/* login con Google (sí usa next-auth) */}
       <ButtonGoogle />
-      {/* Registro */}
+
       <p className="text-center text-white/90 mt-1">
         ¿No tienes cuenta?{" "}
         <Link href="/signup" className="font-semibold underline">
