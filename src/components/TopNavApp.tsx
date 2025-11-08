@@ -14,7 +14,6 @@ const links = [
   { href: "/dispositivos", label: "Dispositivos" },
   { href: "/reportes", label: "Reportes" },
   { href: "/campanias", label: "Campañas" },
-  { href: "/dispositivo_consumo", label: "test consumo" },
   { href: "/consumo", label: "Consumo" },
 ];
 

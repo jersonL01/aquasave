@@ -113,12 +113,14 @@ export default function ReportesPage() {
         {/* Header */}
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-extrabold tracking-tight">Reportes</h1>
+
           <button
             onClick={onDownload}
             className="inline-flex items-center gap-2 rounded-xl bg-amber-400 px-4 py-2 text-sm font-extrabold text-slate-900 shadow hover:bg-amber-300"
           >
-            <Download className="size-4" /> Descargar CSV
+            <Download className="size-4" /> Descargar PDF
           </button>
+          
         </div>
 
         {/* Filtros */}

@@ -7,6 +7,29 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 const f3 = (n: number) => Math.round(n * 1000) / 1000;
 export const dynamic = "force-dynamic";
 
+// ───────────────────────────────── helper gamificación ─────────────────────────
+async function otorgarPuntosPorConsumo(usuarioId: number, litros: number) {
+  // regla simple: cada simulación que guarda consumo = 10 pts
+  const puntos = 10;
+
+  // 1) registro de evento (detalle lo dejamos NULL para no pelear con jsonb)
+  await sql/*sql*/`
+    INSERT INTO gamificacion_eventos (usuario_id, tipo, puntos, detalle)
+    VALUES (${usuarioId}, 'consumo_registrado', ${puntos}, NULL)
+  `;
+
+  // 2) acumular en el total del usuario
+  await sql/*sql*/`
+    INSERT INTO gamificacion_puntos (usuario_id, puntos)
+    VALUES (${usuarioId}, ${puntos})
+    ON CONFLICT (usuario_id)
+    DO UPDATE SET
+      puntos = gamificacion_puntos.puntos + EXCLUDED.puntos,
+      actualizado_en = now()
+  `;
+}
+
+// ─────────────────────────────────── handler ───────────────────────────────────
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -34,7 +57,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // sesión (solo para intentar mapear al mismo user)
+    // sesión para saber quién es
     const session = await getServerSession(authOptions);
     const sessionId =
       (session?.user as any)?.id ||
@@ -42,7 +65,7 @@ export async function POST(req: Request) {
       (session?.user as any)?.usuario_id ||
       null;
 
-    // obtener dispositivo
+    // datos del dispositivo
     const devRows = await sql/*sql*/`
       SELECT id, usuario_id, COALESCE(cantidad, 1)::float8 AS lpm
       FROM public.dispositivos
@@ -50,6 +73,7 @@ export async function POST(req: Request) {
       LIMIT 1
     `;
     const dev = Array.isArray(devRows) ? devRows[0] : (devRows as any)?.rows?.[0];
+
     if (!dev) {
       return NextResponse.json(
         { ok: false, error: "Dispositivo no encontrado" },
@@ -57,13 +81,13 @@ export async function POST(req: Request) {
       );
     }
 
-    // prioridad:
-    // 1) si la sesión trae un id numérico -> usar ese
-    // 2) si no, usar el usuario_id del dispositivo
-    const usuarioId = sessionId && !Number.isNaN(Number(sessionId))
-      ? Number(sessionId)
-      : Number(dev.usuario_id);
+    // prioridad de usuario: sesión > dueño del dispositivo
+    const usuarioId =
+      sessionId && !Number.isNaN(Number(sessionId))
+        ? Number(sessionId)
+        : Number(dev.usuario_id);
 
+    // rango de simulación (24h por defecto)
     const endTs = end ? new Date(end) : new Date();
     const startTs = start
       ? new Date(start)
@@ -71,7 +95,7 @@ export async function POST(req: Request) {
 
     const fechaDiaISO = endTs.toISOString().slice(0, 10);
 
-    // simulate
+    // simulamos litros
     let t = startTs.getTime();
     let litrosDelDia = 0;
     while (t < endTs.getTime()) {
@@ -85,7 +109,7 @@ export async function POST(req: Request) {
     }
     litrosDelDia = f3(litrosDelDia);
 
-    // upsert
+    // upsert en consumo_agua
     const existing = await sql/*sql*/`
       SELECT id, cantidad_litros
       FROM public.consumo_agua
@@ -94,7 +118,6 @@ export async function POST(req: Request) {
         AND fecha::date = ${fechaDiaISO}::date
       LIMIT 1
     `;
-
     const existArr = Array.isArray(existing)
       ? existing
       : (existing as any)?.rows ?? [];
@@ -114,6 +137,9 @@ export async function POST(req: Request) {
         VALUES (${usuarioId}, ${deviceId}, ${fechaDiaISO}::timestamptz, ${litrosDelDia})
       `;
     }
+
+    // 👇 AQUÍ sumamos puntos ya sin romper nada
+    await otorgarPuntosPorConsumo(usuarioId, litrosDelDia);
 
     return NextResponse.json({
       ok: true,
