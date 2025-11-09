@@ -2,8 +2,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Calendar, Download, BarChart3, LineChart, Filter } from "lucide-react";
+import { Calendar, BarChart3, LineChart, Filter } from "lucide-react";
 import TopNavApp from "@/components/TopNavApp";
+import BtnDescargar from "@/components/BtnDescargar";
 
 type ApiRow = {
   fecha: string;
@@ -13,7 +14,16 @@ type ApiRow = {
   costo: number;
 };
 
-const fmtCL = (n: number) => new Intl.NumberFormat("es-CL").format(n);
+// números genéricos (litros, etc.)
+const fmtNum = (n: number) => new Intl.NumberFormat("es-CL").format(n);
+
+// pesos chilenos SIN decimales
+const fmtCLP = (n: number) =>
+  new Intl.NumberFormat("es-CL", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Math.round(n));
+
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("es-CL");
 const monthKey = (iso: string) => {
   const d = new Date(iso);
@@ -84,46 +94,17 @@ export default function ReportesPage() {
     [data]
   );
 
-  function downloadFile(filename: string, content: string, mime = "text/csv;charset=utf-8;") {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function toCSV(rows: ApiRow[]) {
-    const headers = ["fecha", "dispositivo", "consumo", "costo"];
-    const lines = [headers.join(",")].concat(
-      rows.map((r) => [r.fecha, r.dispositivo, r.consumo, r.costo].join(","))
-    );
-    return lines.join("\n");
-  }
-
-  function onDownload() {
-    downloadFile("reporte-consumo.csv", toCSV(data));
-  }
-
   return (
     <main className="min-h-screen bg-white text-slate-900">
       <TopNavApp />
       <div className="mx-auto max-w-7xl px-6 py-8">
-        {/* Header */}
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-extrabold tracking-tight">Reportes</h1>
-
-          <button
-            onClick={onDownload}
-            className="inline-flex items-center gap-2 rounded-xl bg-amber-400 px-4 py-2 text-sm font-extrabold text-slate-900 shadow hover:bg-amber-300"
-          >
-            <Download className="size-4" /> Descargar PDF
-          </button>
-          
+          <div className="flex gap-3">
+            <BtnDescargar from={desde} to={hasta} deviceId={disp} />
+          </div>
         </div>
 
-        {/* Filtros */}
         <section className="rounded-2xl border bg-white p-4 shadow-sm mb-6">
           <div className="mb-3 flex items-center gap-2 text-slate-600 text-sm">
             <Filter className="size-4" /> Filtros
@@ -170,11 +151,10 @@ export default function ReportesPage() {
           </div>
         </section>
 
-        {/* Estados */}
         {!loading && !err && data.length === 0 ? (
           <div className="rounded-2xl border bg-slate-50 px-5 py-6 text-center text-slate-500">
-            Aún no tienes consumos registrados. Agrega un dispositivo y enciéndelo para ver
-            reportes acá.
+            Aún no tienes consumos registrados. Agrega un dispositivo y
+            enciéndelo para ver reportes acá.
           </div>
         ) : err ? (
           <div className="rounded-2xl border bg-red-50 px-5 py-6 text-center text-red-500">
@@ -182,26 +162,24 @@ export default function ReportesPage() {
           </div>
         ) : (
           <>
-            {/* KPIs */}
             <section className="grid gap-4 md:grid-cols-3">
               <Kpi
                 icon={<BarChart3 className="size-5" />}
                 label="Consumo total"
-                value={`${fmtCL(kpis.totalConsumo)} L`}
+                value={`${fmtNum(kpis.totalConsumo)} L`}
               />
               <Kpi
                 icon={<Calendar className="size-5" />}
                 label="Promedio por registro"
-                value={`${fmtCL(kpis.promedio)} L`}
+                value={`${fmtNum(kpis.promedio)} L`}
               />
               <Kpi
                 icon={<LineChart className="size-5" />}
                 label="Costo total"
-                value={`$${fmtCL(kpis.totalCosto)}`}
+                value={`$${fmtCLP(kpis.totalCosto)}`}
               />
             </section>
 
-            {/* Charts */}
             <section className="mt-6 grid gap-6 lg:grid-cols-2">
               <Card title="Consumo por mes (barras)">
                 <Bars data={porMes} />
@@ -211,7 +189,6 @@ export default function ReportesPage() {
               </Card>
             </section>
 
-            {/* Tabla */}
             <section className="mt-8">
               <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
                 <table className="min-w-full text-sm">
@@ -226,7 +203,10 @@ export default function ReportesPage() {
                   <tbody>
                     {loading ? (
                       <tr>
-                        <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
+                        <td
+                          colSpan={4}
+                          className="px-4 py-6 text-center text-slate-500"
+                        >
                           Cargando…
                         </td>
                       </tr>
@@ -235,8 +215,8 @@ export default function ReportesPage() {
                         <tr key={i} className="border-t">
                           <Td>{fmtDate(r.fecha)}</Td>
                           <Td>{r.dispositivo}</Td>
-                          <Td>{fmtCL(r.consumo)}</Td>
-                          <Td>${fmtCL(r.costo)}</Td>
+                          <Td>{fmtNum(r.consumo)}</Td>
+                          <Td>${fmtCLP(r.costo)}</Td>
                         </tr>
                       ))
                     )}
@@ -251,15 +231,26 @@ export default function ReportesPage() {
   );
 }
 
-/* --- UI Helpers --- */
-
-function Kpi({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+/* helpers UI igual que antes */
+function Kpi({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
   return (
     <div className="rounded-2xl border bg-white px-5 py-4 shadow-sm">
       <div className="flex items-center gap-3">
-        <div className="grid place-items-center size-9 rounded-full bg-slate-100">{icon}</div>
+        <div className="grid place-items-center size-9 rounded-full bg-slate-100">
+          {icon}
+        </div>
         <div>
-          <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+          <p className="text-xs uppercase tracking-wide text-slate-500">
+            {label}
+          </p>
           <p className="text-xl font-extrabold">{value}</p>
         </div>
       </div>
@@ -276,13 +267,17 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide text-slate-600">{children}</th>;
+  return (
+    <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide text-slate-600">
+      {children}
+    </th>
+  );
 }
 function Td({ children }: { children: React.ReactNode }) {
   return <td className="px-4 py-3 align-top">{children}</td>;
 }
 
-/* --- Charts --- */
+/* charts igual que antes… */
 function Bars({ data }: { data: [string, number][] }) {
   const W = 520,
     H = 240,
@@ -293,7 +288,8 @@ function Bars({ data }: { data: [string, number][] }) {
   const gap = 8;
   const bw = innerW / Math.max(1, data.length) - gap;
 
-  if (data.length === 0) return <div className="text-sm text-slate-500">Sin datos</div>;
+  if (data.length === 0)
+    return <div className="text-sm text-slate-500">Sin datos</div>;
 
   return (
     <svg width={W} height={H} className="block">
@@ -306,7 +302,13 @@ function Bars({ data }: { data: [string, number][] }) {
         return (
           <g key={k}>
             <rect x={x} y={y} width={bw} height={h} rx={4} className="fill-slate-700" />
-            <text x={x + bw / 2} y={H - pad + 14} textAnchor="middle" fontSize={10} className="fill-slate-600">
+            <text
+              x={x + bw / 2}
+              y={H - pad + 14}
+              textAnchor="middle"
+              fontSize={10}
+              className="fill-slate-600"
+            >
               {k.slice(5)}
             </text>
           </g>
@@ -322,7 +324,8 @@ function LineArea({ data }: { data: { fecha: string; consumo: number }[] }) {
     pad = 28;
   const innerW = W - pad * 2,
     innerH = H - pad * 2;
-  if (data.length === 0) return <div className="text-sm text-slate-500">Sin datos</div>;
+  if (data.length === 0)
+    return <div className="text-sm text-slate-500">Sin datos</div>;
   if (data.length === 1) {
     return (
       <svg width={W} height={H} className="block">
@@ -334,7 +337,8 @@ function LineArea({ data }: { data: { fecha: string; consumo: number }[] }) {
   const min = Math.min(...data.map((d) => d.consumo));
   const max = Math.max(...data.map((d) => d.consumo));
   const xs = (i: number) => pad + (innerW * i) / Math.max(1, data.length - 1);
-  const ys = (v: number) => pad + innerH - ((v - min) / Math.max(1, max - min)) * innerH;
+  const ys = (v: number) =>
+    pad + innerH - ((v - min) / Math.max(1, max - min)) * innerH;
 
   let d = `M ${xs(0)} ${ys(data[0].consumo)}`;
   for (let i = 1; i < data.length; i++) d += ` L ${xs(i)} ${ys(data[i].consumo)}`;
